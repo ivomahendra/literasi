@@ -1,6 +1,7 @@
 // ====================================================
 //  APLIKASI LITERASI – FRONTEND LOGIC (CORS FIX)
 //  Fitur: Tombol "Selesai Membaca" aktif setelah 3 detik
+//  Fitur: Tampilkan hari/tanggal pada hasil pekerjaan
 // ====================================================
 
 const CONFIG = {
@@ -21,7 +22,7 @@ const state = {
     recognition: null,
     currentQuestionIndex: -1,
     results: [],
-    readFinishTimeout: null, // untuk menunda aktifnya tombol
+    readFinishTimeout: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -214,31 +215,25 @@ function openQuestionModal(index) {
     let timeLeft = q.timeRead;
     dom.qTimeLeft.textContent = formatTime(timeLeft);
     
-    // Tombol awal: disabled dengan teks "Membaca..."
     dom.qCloseBtn.disabled = true;
     dom.qCloseBtn.textContent = 'Membaca...';
-    
-    // Hapus event listener lama (untuk menghindari duplikasi)
     dom.qCloseBtn.onclick = null;
     
     showModal(dom.questionModal);
     state.isReading = true;
     stopTimer();
     
-    // Timer untuk menghitung mundur waktu baca
     state.timerInterval = setInterval(() => {
         timeLeft--;
         dom.qTimeLeft.textContent = formatTime(timeLeft);
         if (timeLeft <= 0) {
             clearInterval(state.timerInterval);
             state.timerInterval = null;
-            // Waktu habis, aktifkan tombol
             dom.qCloseBtn.disabled = false;
             dom.qCloseBtn.textContent = 'Selesai Membaca (waktu habis)';
         }
     }, 1000);
     
-    // Aktifkan tombol setelah 3 detik (agar siswa tidak langsung melewati)
     state.readFinishTimeout = setTimeout(() => {
         if (state.isReading) {
             dom.qCloseBtn.disabled = false;
@@ -246,13 +241,11 @@ function openQuestionModal(index) {
         }
     }, 3000);
     
-    // Event klik tombol "Selesai Membaca"
     dom.qCloseBtn.onclick = function() {
         if (dom.qCloseBtn.disabled) return;
-        // Tutup modal soal dan lanjut ke jawaban
         hideModal(dom.questionModal);
         state.isReading = false;
-        stopTimer(); // hentikan timer dan timeout
+        stopTimer();
         openAnswerModal(index);
     };
 }
@@ -398,6 +391,7 @@ async function fetchResults() {
     }
 }
 
+// ---------- RENDER HASIL (dengan hari/tanggal) ----------
 function renderResults() {
     const list = dom.resultsList;
     list.innerHTML = '';
@@ -408,9 +402,18 @@ function renderResults() {
     state.results.slice().reverse().forEach(row => {
         const div = document.createElement('div');
         div.className = 'result-item';
+        // Format waktu: jika ada, tampilkan hari, tanggal, jam
+        let waktuDisplay = '';
+        if (row.waktu) {
+            // row.waktu sudah dalam format string dari sheet (misal "25/6/2026, 19.52.21")
+            // Kita bisa tambahkan hari dalam minggu, tetapi cukup tampilkan apa adanya
+            // atau format ulang jika perlu
+            waktuDisplay = row.waktu;
+        }
         div.innerHTML = `
             <span class="r-name">${row.name || 'Anonim'} (${row.level || '-'})</span>
             <span class="r-score">${row.score || 0} / 10</span>
+            <span class="r-time">${waktuDisplay}</span>
         `;
         list.appendChild(div);
     });
@@ -460,4 +463,4 @@ document.querySelectorAll('.modal-overlay').forEach(modal => {
     });
 });
 
-console.log('Aplikasi Literasi siap! (Tombol Selesai Membaca)');
+console.log('Aplikasi Literasi siap! (Tombol Selesai Membaca + Waktu Hasil)');
