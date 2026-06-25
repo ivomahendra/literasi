@@ -468,3 +468,48 @@ body {
     .form-card .form-row { gap:14px; }
     .form-group { flex:1 1 150px; }
 }
+
+/* Tambahan untuk hasil dengan tanggal */
+.result-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    background: rgba(255,255,255,0.04);
+    padding: 8px 14px;
+    border-radius: 30px;
+    border-left: 4px solid #f9c74f;
+}
+.result-item .r-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.result-item .r-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.result-item .r-level {
+    background: rgba(255,255,255,0.08);
+    padding: 0 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    color: #b8d0e0;
+}
+.result-item .r-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.result-item .r-time {
+    font-size: 0.75rem;
+    color: #8aa3b9;
+}
+.result-item .r-score {
+    font-weight: 700;
+    color: #f9c74f;
+    font-size: 0.95rem;
+}
