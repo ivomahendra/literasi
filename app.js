@@ -3,6 +3,8 @@
 //  Menggunakan Groq API (fallback multiple API keys)
 //  Fitur: Tombol "Selesai Membaca" aktif setelah 3 detik
 //  Fitur: Tampilkan hari/tanggal pada hasil pekerjaan
+//  Fitur: Tema acak (finansial, lingkungan, digital, kesehatan)
+//  Fitur: Batasan kata jawaban sesuai level
 // ====================================================
 
 // ---------- KONFIGURASI ----------
@@ -10,11 +12,12 @@ const CONFIG = {
     SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxYoqc7oHFiKw8VmPrXRcSNzWRK4t7vn8zO15pBSOWX3jKwXCuFr1WRKaAwl4JsA37srw/exec',
     GROQ_API_KEYS: [
         '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', // Key 1
-        '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', // Ganti dengan Key 2
-        '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'      // Ganti dengan Key 3
+        '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', // Key 2
+        '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'  // Key 3
     ],
     GROQ_URL: 'https://api.groq.com/openai/v1/chat/completions',
-    GROQ_MODEL: 'llama-3.3-70b-versatile' // atau 'mixtral-8x7b-32768'
+    GROQ_MODEL: 'llama-3.3-70b-versatile', // atau 'mixtral-8x7b-32768'
+
     // Tema yang tersedia (akan dipilih acak)
     THEMES: [
         'finansial dan kewirausahaan',
@@ -23,7 +26,6 @@ const CONFIG = {
         'kesehatan dan gaya hidup'
     ]
 };
-
 
 // ---------- STATE ----------
 const state = {
@@ -218,7 +220,7 @@ Output dalam format JSON: {"text": "isi bacaan lengkap"}. Hanya output JSON.`;
             timeWrite: cfg.timeWrite,
             answer: null,
             score: null,
-            theme: theme
+            theme: theme // opsional, untuk info
         }];
         const total = state.questions.length;
         state.boxesStatus = new Array(total).fill('white');
