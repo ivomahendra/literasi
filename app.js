@@ -1,19 +1,21 @@
 // ====================================================
 //  APLIKASI LITERASI – FRONTEND LOGIC
-//  Menggunakan Groq API (model mixtral-8x7b-32768)
+//  Menggunakan Groq API (fallback multiple API keys)
 //  Fitur: Tombol "Selesai Membaca" aktif setelah 3 detik
 //  Fitur: Tampilkan hari/tanggal pada hasil pekerjaan
 // ====================================================
 
 // ---------- KONFIGURASI ----------
-// ---------- KONFIGURASI ----------
 const CONFIG = {
     SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxYoqc7oHFiKw8VmPrXRcSNzWRK4t7vn8zO15pBSOWX3jKwXCuFr1WRKaAwl4JsA37srw/exec',
-    GROQ_API_KEY: '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'
+    GROQ_API_KEYS: [
+        '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', // Key 1
+        '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', // Ganti dengan Key 2
+        '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'      // Ganti dengan Key 3
+    ],
+    GROQ_URL: 'https://api.groq.com/openai/v1/chat/completions',
+    GROQ_MODEL: 'llama-3.3-70b-versatile' // atau 'mixtral-8x7b-32768'
 };
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-// Pilih salah satu model di bawah ini:
-const GROQ_MODEL = 'llama-3.3-70b-versatile'; // atau 'llama-3.1-8b-instant'
 
 // ---------- STATE ----------
 const state = {
@@ -100,46 +102,92 @@ function getLevelConfig(level) {
     return configs[level];
 }
 
-// ---------- GROQ API (dengan retry) ----------
-async function askGroq(prompt, maxRetries = 3) {
+// ---------- GROQ API DENGAN FALLBACK MULTI-KEY ----------
+async function askGroq(prompt, maxRetriesPerKey = 2) {
+    const keys = CONFIG.GROQ_API_KEYS.filter(k => k && k.startsWith('gsk_'));
+    if (keys.length === 0) {
+        throw new Error('Tidak ada API key Groq yang valid. Periksa konfigurasi.');
+    }
+
     let lastError = null;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const response = await fetch(GROQ_API_URL, {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Bearer ' + CONFIG.GROQ_API_KEY,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: GROQ_MODEL,
-                    messages: [
-                        { role: 'system', content: 'Kamu adalah asisten AI yang membantu dalam pendidikan literasi. Selalu berikan jawaban dalam format JSON yang valid tanpa markdown pembungkus.' },
-                        { role: 'user', content: prompt }
-                    ],
-                    temperature: 0.7,
-                    max_tokens: 4096,
-                    response_format: { type: 'json_object' }
-                })
-            });
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`HTTP ${response.status}: ${text}`);
-            }
-            const data = await response.json();
-            const content = data.choices?.[0]?.message?.content;
-            if (!content) throw new Error('Respons tidak memiliki konten');
-            // Validasi JSON
-            JSON.parse(content);
-            return content;
-        } catch (e) {
-            lastError = e;
-            if (attempt < maxRetries) {
-                await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+    // Loop melalui setiap key
+    for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+        const apiKey = keys[keyIndex];
+        console.log(`Mencoba dengan API Key #${keyIndex + 1}...`);
+
+        for (let attempt = 1; attempt <= maxRetriesPerKey; attempt++) {
+            try {
+                const response = await fetch(CONFIG.GROQ_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + apiKey,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: CONFIG.GROQ_MODEL,
+                        messages: [
+                            { role: 'system', content: 'Kamu adalah asisten AI yang membantu dalam pendidikan literasi. Selalu berikan jawaban dalam format JSON yang valid tanpa markdown pembungkus.' },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 4096,
+                        response_format: { type: 'json_object' }
+                    })
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    let errorMsg = `HTTP ${response.status}`;
+                    try {
+                        const errJson = JSON.parse(text);
+                        if (errJson.error && errJson.error.message) {
+                            errorMsg += `: ${errJson.error.message}`;
+                        } else {
+                            errorMsg += `: ${text}`;
+                        }
+                    } catch (e) {
+                        errorMsg += `: ${text}`;
+                    }
+                    // Jika error 401 atau 429, kita anggap key ini tidak valid/terbatas, lanjut ke key berikutnya
+                    if (response.status === 401 || response.status === 429) {
+                        throw new Error(errorMsg); // akan ditangkap di catch dan lanjut ke key berikutnya
+                    }
+                    throw new Error(errorMsg);
+                }
+
+                const data = await response.json();
+                const content = data.choices?.[0]?.message?.content;
+                if (!content) throw new Error('Respons tidak memiliki konten');
+
+                // Validasi JSON
+                try {
+                    JSON.parse(content);
+                    return content; // Berhasil
+                } catch (e) {
+                    // Coba ekstrak JSON dari markdown
+                    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+                    if (jsonMatch) {
+                        const jsonStr = jsonMatch[1];
+                        JSON.parse(jsonStr);
+                        return jsonStr;
+                    }
+                    throw new Error('Respons bukan JSON yang valid: ' + content);
+                }
+            } catch (e) {
+                lastError = e;
+                console.warn(`Key #${keyIndex+1}, percobaan ${attempt} gagal:`, e.message);
+                if (attempt < maxRetriesPerKey) {
+                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                }
+                // Jika percobaan habis untuk key ini, kita akan keluar dari loop percobaan dan lanjut ke key berikutnya
             }
         }
+        // Jika sampai sini, berarti key ini gagal setelah maxRetriesPerKey, lanjut ke key berikutnya
+        console.warn(`API Key #${keyIndex+1} gagal setelah ${maxRetriesPerKey} percobaan. Beralih ke key berikutnya...`);
     }
-    throw new Error('AI gagal setelah ' + maxRetries + ' percobaan. ' + lastError.message);
+
+    // Jika semua key gagal
+    throw new Error('Semua API key Groq gagal setelah percobaan. ' + (lastError ? lastError.message : ''));
 }
 
 // ---------- GENERATE SOAL VIA GROQ ----------
@@ -551,4 +599,4 @@ document.querySelectorAll('.modal-overlay').forEach(modal => {
     });
 });
 
-console.log('Aplikasi Literasi siap! (Groq API dengan model Mixtral)');
+console.log('Aplikasi Literasi siap! (Groq API dengan fallback multi-key, model ' + CONFIG.GROQ_MODEL + ')');
