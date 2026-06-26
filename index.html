@@ -12,6 +12,7 @@
     <div class="bg-layer"></div>
     <div id="app" class="container">
 
+        <!-- ===== HEADER ===== -->
         <header class="app-header">
             <div class="logo-area">
                 <i class="fas fa-book-open"></i>
@@ -24,6 +25,7 @@
             </div>
         </header>
 
+        <!-- ===== FORM AWAL ===== -->
         <section id="formSection" class="card form-card">
             <div class="form-row">
                 <div class="form-group">
@@ -47,6 +49,7 @@
             </div>
         </section>
 
+        <!-- ===== KOTAK SOAL ===== -->
         <section id="boxesSection" class="card boxes-card">
             <div class="boxes-header">
                 <h3><i class="fas fa-th-large"></i> Soal Literasi</h3>
@@ -54,10 +57,11 @@
             </div>
             <div class="boxes-grid" id="boxesGrid"></div>
             <div id="totalScoreDisplay" class="total-score">
-                <i class="fas fa-star"></i> Total Skor: <span id="totalScoreValue">-</span> / 10
+                <i class="fas fa-star"></i> Total Skor: <span id="totalScoreValue">-</span> / 100
             </div>
         </section>
 
+        <!-- ===== HASIL PEKERJAAN ===== -->
         <section id="resultsSection" class="card results-card">
             <h3><i class="fas fa-chart-bar"></i> Hasil Pekerjaan</h3>
             <div id="resultsList">
@@ -65,23 +69,24 @@
             </div>
         </section>
 
+        <!-- ===== FOOTER ===== -->
         <footer class="app-footer">
-            <p>© 2026 LiterasiLabs · Dibuat oleh <a href="https://ivomahendra.github.io/" target="_blank" style="color: #ff3e04; text-decoration: none; font-size: 1rem;">Ivo</a> dengan <i class="fas fa-heart"></i> untuk anak Indonesia</p>
+            <p>© 2026 LiterasiLabs · Dibuat dengan <i class="fas fa-heart"></i> untuk anak Indonesia</p>
         </footer>
     </div>
 
-    <!-- Modal Peringatan 3 detik -->S
+    <!-- ===== MODAL PERINGATAN (3 DETIK) ===== -->
     <div id="warningModal" class="modal-overlay">
         <div class="modal-box warning-box">
             <div class="warning-icon"><i class="fas fa-exclamation-triangle"></i></div>
             <h2 id="warningTitle">Siap!</h2>
-            <p id="warningDesc">Baca soal dengan teliti.</p>
+            <p id="warningDesc">Bacalah cerita dengan teliti.</p>
             <div id="warningCountdown" class="countdown-circle">3</div>
             <p class="warning-sub">Soal akan muncul dalam <span id="countdownNumber">3</span> detik</p>
         </div>
     </div>
 
-    <!-- Modal Soal (Baca) -->
+    <!-- ===== MODAL SOAL (BACA) ===== -->
     <div id="questionModal" class="modal-overlay">
         <div class="modal-box question-box">
             <div class="modal-header">
@@ -97,7 +102,7 @@
         </div>
     </div>
 
-    <!-- Modal Jawab (Menulis + Voice) -->
+    <!-- ===== MODAL JAWAB (MENULIS + VOICE) ===== -->
     <div id="answerModal" class="modal-overlay">
         <div class="modal-box answer-box">
             <div class="modal-header">
@@ -105,7 +110,7 @@
                 <span class="timer" id="aTimer"><i class="far fa-hourglass"></i> <span id="aTimeLeft">03:00</span></span>
             </div>
             <div class="modal-body">
-                <p class="answer-prompt">Tulis jawabanmu berdasarkan soal yang sudah dibaca:</p>
+                <p class="answer-prompt">Tulis ringkasan/ide pokok dari bacaan di atas:</p>
                 <textarea id="answerInput" placeholder="Tulis jawaban di sini..."></textarea>
                 <div class="voice-controls">
                     <button id="voiceBtn" class="btn-voice"><i class="fas fa-microphone"></i> Rekam Suara</button>
@@ -119,7 +124,7 @@
         </div>
     </div>
 
-    <!-- Modal Skor -->
+    <!-- ===== MODAL SKOR (dengan ide pokok) ===== -->
     <div id="scoreModal" class="modal-overlay">
         <div class="modal-box score-box">
             <div class="modal-header">
@@ -131,6 +136,11 @@
                     <small>/ 10</small>
                 </div>
                 <p id="scoreComment">Analisis AI...</p>
+                <p id="scoreExpectedIdea" style="margin-top:16px; font-size:0.95rem; color:#b8d0e0; background:rgba(255,255,255,0.05); padding:12px 16px; border-radius:12px; border-left:4px solid #f9c74f; line-height:1.6;">
+                    <i class="fas fa-lightbulb" style="color:#f9c74f; margin-right:8px;"></i>
+                    <strong>Ide Pokok yang Diharapkan:</strong><br>
+                    <span id="expectedIdeaText">-</span>
+                </p>
             </div>
             <div class="modal-footer">
                 <button id="scoreCloseBtn" class="btn-primary">Lanjut</button>
@@ -138,6 +148,7 @@
         </div>
     </div>
 
+    <!-- ===== JAVASCRIPT ===== -->
     <script src="app.js"></script>
 </body>
 </html>

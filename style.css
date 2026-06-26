@@ -235,7 +235,7 @@ body {
 /* ===== RESULTS ===== */
 .results-card h3 { display:flex; align-items:center; gap:8px; margin-bottom:12px; font-size:1.1rem; }
 #resultsList {
-    max-height:160px;
+    max-height:400px;
     overflow-y:auto;
     display:flex;
     flex-direction:column;
