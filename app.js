@@ -24,6 +24,7 @@ const CONFIG = {
     ]
 };
 
+
 // ---------- STATE ----------
 const state = {
     name: '',
@@ -217,7 +218,7 @@ Output dalam format JSON: {"text": "isi bacaan lengkap"}. Hanya output JSON.`;
             timeWrite: cfg.timeWrite,
             answer: null,
             score: null,
-            theme: theme // simpan tema untuk informasi
+            theme: theme
         }];
         const total = state.questions.length;
         state.boxesStatus = new Array(total).fill('white');
