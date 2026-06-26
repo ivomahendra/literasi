@@ -1,13 +1,21 @@
 // ====================================================
-//  APLIKASI LITERASI – FRONTEND LOGIC (CORS FIX)
+//  APLIKASI LITERASI – FRONTEND LOGIC
+//  Menggunakan Groq API (model mixtral-8x7b-32768)
 //  Fitur: Tombol "Selesai Membaca" aktif setelah 3 detik
 //  Fitur: Tampilkan hari/tanggal pada hasil pekerjaan
 // ====================================================
 
+// ---------- KONFIGURASI ----------
+// ---------- KONFIGURASI ----------
 const CONFIG = {
-    SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxYoqc7oHFiKw8VmPrXRcSNzWRK4t7vn8zO15pBSOWX3jKwXCuFr1WRKaAwl4JsA37srw/exec' // GANTI DENGAN URL DEPLOY ANDA
+    SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxYoqc7oHFiKw8VmPrXRcSNzWRK4t7vn8zO15pBSOWX3jKwXCuFr1WRKaAwl4JsA37srw/exec',
+    GROQ_API_KEY: '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'
 };
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+// Pilih salah satu model di bawah ini:
+const GROQ_MODEL = 'llama-3.3-70b-versatile'; // atau 'llama-3.1-8b-instant'
 
+// ---------- STATE ----------
 const state = {
     name: '',
     level: 2,
@@ -25,6 +33,7 @@ const state = {
     readFinishTimeout: null,
 };
 
+// ---------- DOM UTILITY ----------
 const $ = (id) => document.getElementById(id);
 const dom = {
     name: $('studentName'),
@@ -59,6 +68,7 @@ const dom = {
     scoreNumber: $('scoreNumber'),
     scoreComment: $('scoreComment'),
     scoreCloseBtn: $('scoreCloseBtn'),
+    expectedIdeaText: $('expectedIdeaText'),
 };
 
 // ---------- UTILITY ----------
@@ -83,11 +93,124 @@ function stopTimer() {
 
 function getLevelConfig(level) {
     const configs = {
-        1: { timeRead: 5 * 60, timeWrite: 3 * 60, wordCount: '150-250', answerLen: '20-30', questionCount: 2 },
+        1: { timeRead: 5 * 60, timeWrite: 3 * 60, wordCount: '150-250', answerLen: '20-30', questionCount: 1 },
         2: { timeRead: 10 * 60, timeWrite: 5 * 60, wordCount: '400-500', answerLen: '50-60', questionCount: 1 },
         3: { timeRead: 15 * 60, timeWrite: 7 * 60, wordCount: '700-900', answerLen: '80-100', questionCount: 1 }
     };
     return configs[level];
+}
+
+// ---------- GROQ API (dengan retry) ----------
+async function askGroq(prompt, maxRetries = 3) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(GROQ_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + CONFIG.GROQ_API_KEY,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: GROQ_MODEL,
+                    messages: [
+                        { role: 'system', content: 'Kamu adalah asisten AI yang membantu dalam pendidikan literasi. Selalu berikan jawaban dalam format JSON yang valid tanpa markdown pembungkus.' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.7,
+                    max_tokens: 4096,
+                    response_format: { type: 'json_object' }
+                })
+            });
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`HTTP ${response.status}: ${text}`);
+            }
+            const data = await response.json();
+            const content = data.choices?.[0]?.message?.content;
+            if (!content) throw new Error('Respons tidak memiliki konten');
+            // Validasi JSON
+            JSON.parse(content);
+            return content;
+        } catch (e) {
+            lastError = e;
+            if (attempt < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+            }
+        }
+    }
+    throw new Error('AI gagal setelah ' + maxRetries + ' percobaan. ' + lastError.message);
+}
+
+// ---------- GENERATE SOAL VIA GROQ ----------
+async function fetchQuestions(level, name) {
+    dom.loading.style.display = 'block';
+    dom.startBtn.disabled = true;
+    try {
+        const cfg = getLevelConfig(level);
+        const promptJson = `Buatkan 1 bacaan/cerita pendek untuk anak SMP level ${level}. 
+Bacaan harus memiliki panjang sekitar ${cfg.wordCount} kata. 
+Tema bisa sains, kehidupan sehari-hari, alam, sejarah, atau lainnya. 
+Bacaan harus informatif, menarik, dan memiliki alur cerita yang jelas.
+Output dalam format JSON: {"text": "isi bacaan lengkap"}. Hanya output JSON.`;
+
+        const response = await askGroq(promptJson);
+        const parsed = JSON.parse(response);
+        const text = parsed.text;
+        if (!text || text.length < 50) {
+            throw new Error('Respons AI terlalu pendek atau kosong.');
+        }
+
+        state.questions = [{
+            id: 0,
+            text: text,
+            timeRead: cfg.timeRead,
+            timeWrite: cfg.timeWrite,
+            answer: null,
+            score: null
+        }];
+        const total = state.questions.length;
+        state.boxesStatus = new Array(total).fill('white');
+        state.scores = new Array(total).fill(null);
+        renderBoxes();
+        alert(`Soal berhasil dibuat! (${total} soal) Klik kotak putih untuk mulai mengerjakan.`);
+    } catch (e) {
+        console.error(e);
+        alert('Gagal membuat soal: ' + e.message);
+    } finally {
+        dom.loading.style.display = 'none';
+        dom.startBtn.disabled = false;
+    }
+}
+
+// ---------- EVALUASI JAWABAN VIA GROQ ----------
+async function evaluateAnswerViaAI(question, answer, level) {
+    const prompt = `Berikut adalah sebuah bacaan dan ringkasan/ide pokok yang ditulis oleh siswa.
+
+Bacaan:
+${question}
+
+Ringkasan/Ide Pokok siswa:
+${answer}
+
+Tugasmu: 
+1. Bandingkan ringkasan siswa dengan isi bacaan. 
+2. Nilai seberapa baik siswa menangkap ide pokok dan informasi penting dari bacaan.
+3. Berikan skor 1-10 (10 = sangat baik, menangkap semua ide pokok dengan tepat).
+4. Berikan komentar singkat (2-3 kalimat) yang membangun untuk siswa.
+5. Tuliskan ide pokok yang SEHARUSNYA dari bacaan tersebut (dalam 1-2 kalimat).
+
+Output dalam format JSON: 
+{"score": angka (1-10), "comment": "komentar", "expected_idea": "ide pokok yang diharapkan"}. 
+Hanya output JSON, tanpa teks tambahan.`;
+
+    const response = await askGroq(prompt);
+    const parsed = JSON.parse(response);
+    return {
+        score: parsed.score || 5,
+        comment: parsed.comment || 'Analisis tidak tersedia.',
+        expected_idea: parsed.expected_idea || 'Tidak tersedia'
+    };
 }
 
 // ---------- RENDER BOXES ----------
@@ -121,7 +244,7 @@ function updateProgress() {
     dom.totalScoreValue.textContent = totalScore;
 }
 
-// ---------- KOMUNIKASI KE APPS SCRIPT (FORM DATA) ----------
+// ---------- KOMUNIKASI KE APPS SCRIPT (penyimpanan) ----------
 async function postToScript(payload) {
     const formData = new FormData();
     formData.append('data', JSON.stringify(payload));
@@ -133,39 +256,6 @@ async function postToScript(payload) {
         throw new Error(`HTTP error! status: ${response.status}`);
     }
     return await response.json();
-}
-
-// ---------- FETCH SOAL DARI AI ----------
-async function fetchQuestions(level, name) {
-    dom.loading.style.display = 'block';
-    dom.startBtn.disabled = true;
-    try {
-        const payload = { action: 'generateQuestions', level, name };
-        const data = await postToScript(payload);
-        if (data.status === 'success' && data.questions) {
-            state.questions = data.questions.map((q, idx) => ({
-                id: idx,
-                text: q.text,
-                timeRead: q.timeRead || getLevelConfig(level).timeRead,
-                timeWrite: q.timeWrite || getLevelConfig(level).timeWrite,
-                answer: null,
-                score: null
-            }));
-            const total = state.questions.length;
-            state.boxesStatus = new Array(total).fill('white');
-            state.scores = new Array(total).fill(null);
-            renderBoxes();
-            alert(`Soal berhasil dibuat! (${total} soal) Klik kotak putih untuk mulai mengerjakan.`);
-        } else {
-            alert('Gagal membuat soal. Periksa koneksi atau API key.');
-        }
-    } catch (e) {
-        console.error(e);
-        alert('Terjadi kesalahan saat mengambil soal.');
-    } finally {
-        dom.loading.style.display = 'none';
-        dom.startBtn.disabled = false;
-    }
 }
 
 // ---------- HANDLE KLIK KOTAK ----------
@@ -206,7 +296,7 @@ function showWarning(index) {
     }, 1000);
 }
 
-// ---------- MODAL SOAL (BACA) DENGAN TOMBOL "SELESAI MEMBACA" ----------
+// ---------- MODAL SOAL (BACA) ----------
 function openQuestionModal(index) {
     const q = state.questions[index];
     if (!q) return;
@@ -338,38 +428,43 @@ async function handleSaveAnswer(index) {
     }
     dom.loading.style.display = 'block';
     try {
-        const payload = {
-            action: 'evaluateAnswer',
-            level: state.level,
-            question: q.text,
-            answer: answer,
-            name: state.name,
-            index: index
+        const result = await evaluateAnswerViaAI(q.text, answer, state.level);
+        const score = result.score;
+        state.scores[index] = score;
+        state.boxesStatus[index] = 'green';
+        q.answer = answer;
+        q.score = score;
+        renderBoxes();
+        dom.scoreNumber.textContent = score;
+        dom.scoreComment.textContent = result.comment;
+        dom.expectedIdeaText.textContent = result.expected_idea;
+        showModal(dom.scoreModal);
+        dom.scoreCloseBtn.onclick = function() {
+            hideModal(dom.scoreModal);
+            // Simpan ke Google Sheet
+            try {
+                const payload = {
+                    action: 'saveResult',
+                    name: state.name,
+                    level: state.level,
+                    question: q.text,
+                    answer: answer,
+                    score: score,
+                    comment: result.comment,
+                    expected_idea: result.expected_idea
+                };
+                postToScript(payload).then(() => {
+                    fetchResults();
+                }).catch(err => console.warn('Gagal menyimpan ke sheet:', err));
+            } catch (e) {
+                console.warn('Gagal menyimpan ke sheet:', e);
+            }
+            fetchResults();
         };
-        const data = await postToScript(payload);
-        if (data.status === 'success' && data.score !== undefined) {
-            const score = data.score;
-            state.scores[index] = score;
-            state.boxesStatus[index] = 'green';
-            q.answer = answer;
-            q.score = score;
-            renderBoxes();
-            dom.scoreNumber.textContent = score;
-            dom.scoreComment.textContent = data.comment || 'Analisis selesai.';
-            showModal(dom.scoreModal);
-            dom.scoreCloseBtn.onclick = function() {
-                hideModal(dom.scoreModal);
-                fetchResults();
-            };
-            updateProgress();
-        } else {
-            alert('Gagal menganalisis jawaban. Coba lagi.');
-            state.boxesStatus[index] = 'white';
-            renderBoxes();
-        }
+        updateProgress();
     } catch (e) {
         console.error(e);
-        alert('Error saat mengirim jawaban.');
+        alert('Gagal menganalisis jawaban: ' + e.message);
         state.boxesStatus[index] = 'white';
         renderBoxes();
     } finally {
@@ -402,14 +497,7 @@ function renderResults() {
     state.results.slice().reverse().forEach(row => {
         const div = document.createElement('div');
         div.className = 'result-item';
-        // Format waktu: jika ada, tampilkan hari, tanggal, jam
-        let waktuDisplay = '';
-        if (row.waktu) {
-            // row.waktu sudah dalam format string dari sheet (misal "25/6/2026, 19.52.21")
-            // Kita bisa tambahkan hari dalam minggu, tetapi cukup tampilkan apa adanya
-            // atau format ulang jika perlu
-            waktuDisplay = row.waktu;
-        }
+        let waktuDisplay = row.waktu || '-';
         div.innerHTML = `
             <span class="r-name">${row.name || 'Anonim'} (${row.level || '-'})</span>
             <span class="r-score">${row.score || 0} / 10</span>
@@ -463,4 +551,4 @@ document.querySelectorAll('.modal-overlay').forEach(modal => {
     });
 });
 
-console.log('Aplikasi Literasi siap! (Tombol Selesai Membaca + Waktu Hasil)');
+console.log('Aplikasi Literasi siap! (Groq API dengan model Mixtral)');
