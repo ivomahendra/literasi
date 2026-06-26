@@ -15,6 +15,13 @@ const CONFIG = {
     ],
     GROQ_URL: 'https://api.groq.com/openai/v1/chat/completions',
     GROQ_MODEL: 'llama-3.3-70b-versatile' // atau 'mixtral-8x7b-32768'
+    // Tema yang tersedia (akan dipilih acak)
+    THEMES: [
+        'finansial dan kewirausahaan',
+        'isu lingkungan dan perubahan iklim',
+        'digital dan media sosial',
+        'kesehatan dan gaya hidup'
+    ]
 };
 
 // ---------- STATE ----------
@@ -95,9 +102,9 @@ function stopTimer() {
 
 function getLevelConfig(level) {
     const configs = {
-        1: { timeRead: 5 * 60, timeWrite: 3 * 60, wordCount: '150-250', answerLen: '20-30', questionCount: 1 },
-        2: { timeRead: 10 * 60, timeWrite: 5 * 60, wordCount: '400-500', answerLen: '50-60', questionCount: 1 },
-        3: { timeRead: 15 * 60, timeWrite: 7 * 60, wordCount: '700-900', answerLen: '80-100', questionCount: 1 }
+        1: { timeRead: 5 * 60, timeWrite: 3 * 60, wordCount: '150-250', maxAnswerWords: 25, questionCount: 1 },
+        2: { timeRead: 10 * 60, timeWrite: 5 * 60, wordCount: '300-400', maxAnswerWords: 50, questionCount: 1 },
+        3: { timeRead: 15 * 60, timeWrite: 7 * 60, wordCount: '700-900', maxAnswerWords: 75, questionCount: 1 }
     };
     return configs[level];
 }
@@ -110,7 +117,6 @@ async function askGroq(prompt, maxRetriesPerKey = 2) {
     }
 
     let lastError = null;
-    // Loop melalui setiap key
     for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
         const apiKey = keys[keyIndex];
         console.log(`Mencoba dengan API Key #${keyIndex + 1}...`);
@@ -148,9 +154,8 @@ async function askGroq(prompt, maxRetriesPerKey = 2) {
                     } catch (e) {
                         errorMsg += `: ${text}`;
                     }
-                    // Jika error 401 atau 429, kita anggap key ini tidak valid/terbatas, lanjut ke key berikutnya
                     if (response.status === 401 || response.status === 429) {
-                        throw new Error(errorMsg); // akan ditangkap di catch dan lanjut ke key berikutnya
+                        throw new Error(errorMsg);
                     }
                     throw new Error(errorMsg);
                 }
@@ -159,12 +164,10 @@ async function askGroq(prompt, maxRetriesPerKey = 2) {
                 const content = data.choices?.[0]?.message?.content;
                 if (!content) throw new Error('Respons tidak memiliki konten');
 
-                // Validasi JSON
                 try {
                     JSON.parse(content);
-                    return content; // Berhasil
+                    return content;
                 } catch (e) {
-                    // Coba ekstrak JSON dari markdown
                     const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
                     if (jsonMatch) {
                         const jsonStr = jsonMatch[1];
@@ -179,27 +182,25 @@ async function askGroq(prompt, maxRetriesPerKey = 2) {
                 if (attempt < maxRetriesPerKey) {
                     await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
                 }
-                // Jika percobaan habis untuk key ini, kita akan keluar dari loop percobaan dan lanjut ke key berikutnya
             }
         }
-        // Jika sampai sini, berarti key ini gagal setelah maxRetriesPerKey, lanjut ke key berikutnya
         console.warn(`API Key #${keyIndex+1} gagal setelah ${maxRetriesPerKey} percobaan. Beralih ke key berikutnya...`);
     }
 
-    // Jika semua key gagal
     throw new Error('Semua API key Groq gagal setelah percobaan. ' + (lastError ? lastError.message : ''));
 }
 
-// ---------- GENERATE SOAL VIA GROQ ----------
+// ---------- GENERATE SOAL VIA GROQ (dengan tema acak & batasan kata) ----------
 async function fetchQuestions(level, name) {
     dom.loading.style.display = 'block';
     dom.startBtn.disabled = true;
     try {
         const cfg = getLevelConfig(level);
-        const promptJson = `Buatkan 1 bacaan/cerita pendek untuk anak SMP level ${level}. 
-Bacaan harus memiliki panjang sekitar ${cfg.wordCount} kata. 
-Tema bisa sains, kehidupan sehari-hari, alam, sejarah, atau lainnya. 
-Bacaan harus informatif, menarik, dan memiliki alur cerita yang jelas.
+        // Pilih tema secara acak
+        const theme = CONFIG.THEMES[Math.floor(Math.random() * CONFIG.THEMES.length)];
+        const promptJson = `Buatkan 1 bacaan/cerita pendek untuk anak SMP level ${level} dengan tema "${theme}".
+Bacaan harus memiliki panjang sekitar ${cfg.wordCount} kata.
+Tema harus jelas dan bacaan harus informatif, menarik, serta memiliki alur cerita yang baik.
 Output dalam format JSON: {"text": "isi bacaan lengkap"}. Hanya output JSON.`;
 
         const response = await askGroq(promptJson);
@@ -215,13 +216,14 @@ Output dalam format JSON: {"text": "isi bacaan lengkap"}. Hanya output JSON.`;
             timeRead: cfg.timeRead,
             timeWrite: cfg.timeWrite,
             answer: null,
-            score: null
+            score: null,
+            theme: theme // simpan tema untuk informasi
         }];
         const total = state.questions.length;
         state.boxesStatus = new Array(total).fill('white');
         state.scores = new Array(total).fill(null);
         renderBoxes();
-        alert(`Soal berhasil dibuat! (${total} soal) Klik kotak putih untuk mulai mengerjakan.`);
+        alert(`Soal berhasil dibuat! (${total} soal, tema: ${theme}) Klik kotak putih untuk mulai mengerjakan.`);
     } catch (e) {
         console.error(e);
         alert('Gagal membuat soal: ' + e.message);
@@ -231,8 +233,10 @@ Output dalam format JSON: {"text": "isi bacaan lengkap"}. Hanya output JSON.`;
     }
 }
 
-// ---------- EVALUASI JAWABAN VIA GROQ ----------
+// ---------- EVALUASI JAWABAN VIA GROQ (dengan batasan kata) ----------
 async function evaluateAnswerViaAI(question, answer, level) {
+    const cfg = getLevelConfig(level);
+    const maxWords = cfg.maxAnswerWords;
     const prompt = `Berikut adalah sebuah bacaan dan ringkasan/ide pokok yang ditulis oleh siswa.
 
 Bacaan:
@@ -241,15 +245,16 @@ ${question}
 Ringkasan/Ide Pokok siswa:
 ${answer}
 
-Tugasmu: 
-1. Bandingkan ringkasan siswa dengan isi bacaan. 
+Tugasmu:
+1. Bandingkan ringkasan siswa dengan isi bacaan.
 2. Nilai seberapa baik siswa menangkap ide pokok dan informasi penting dari bacaan.
 3. Berikan skor 1-10 (10 = sangat baik, menangkap semua ide pokok dengan tepat).
 4. Berikan komentar singkat (2-3 kalimat) yang membangun untuk siswa.
 5. Tuliskan ide pokok yang SEHARUSNYA dari bacaan tersebut (dalam 1-2 kalimat).
+6. Pastikan jawaban siswa tidak melebihi ${maxWords} kata; jika melebihi, kurangi poin.
 
-Output dalam format JSON: 
-{"score": angka (1-10), "comment": "komentar", "expected_idea": "ide pokok yang diharapkan"}. 
+Output dalam format JSON:
+{"score": angka (1-10), "comment": "komentar", "expected_idea": "ide pokok yang diharapkan"}
 Hanya output JSON, tanpa teks tambahan.`;
 
     const response = await askGroq(prompt);
@@ -489,7 +494,6 @@ async function handleSaveAnswer(index) {
         showModal(dom.scoreModal);
         dom.scoreCloseBtn.onclick = function() {
             hideModal(dom.scoreModal);
-            // Simpan ke Google Sheet
             try {
                 const payload = {
                     action: 'saveResult',
