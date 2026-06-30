@@ -1,6 +1,7 @@
 // ====================================================
 //  APLIKASI LITERASI – FRONTEND LOGIC
-//  Menggunakan Groq API (fallback multiple API keys)
+//  Menggunakan server lokal (Ollama) via ngrok untuk AI
+//  Penyimpanan hasil ke Google Apps Script
 //  Fitur: Tombol "Selesai Membaca" aktif setelah 3 detik
 //  Fitur: Tampilkan hari/tanggal pada hasil pekerjaan
 //  Fitur: Tema acak (finansial, lingkungan, digital, kesehatan)
@@ -9,14 +10,11 @@
 
 // ---------- KONFIGURASI ----------
 const CONFIG = {
-    SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxYoqc7oHFiKw8VmPrXRcSNzWRK4t7vn8zO15pBSOWX3jKwXCuFr1WRKaAwl4JsA37srw/exec',
-    GROQ_API_KEYS: [
-        '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', // Key 1
-        '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', // Key 2
-        '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'  // Key 3
-    ],
-    GROQ_URL: 'https://api.groq.com/openai/v1/chat/completions',
-    GROQ_MODEL: 'llama-3.3-70b-versatile', // atau 'mixtral-8x7b-32768'
+    // URL untuk generate & evaluate (server lokal melalui ngrok)
+    API_URL: 'https://cardigan-unmixed-saddled.ngrok-free.dev', // GANTI DENGAN URL NGROK ANDA
+
+    // URL untuk menyimpan dan mengambil hasil (Google Apps Script)
+    SHEET_URL: 'https://script.google.com/macros/s/AKfycbxYoqc7oHFiKw8VmPrXRcSNzWRK4t7vn8zO15pBSOWX3jKwXCuFr1WRKaAwl4JsA37srw/exec',
 
     // Tema yang tersedia (akan dipilih acak)
     THEMES: [
@@ -112,121 +110,29 @@ function getLevelConfig(level) {
     return configs[level];
 }
 
-// ---------- GROQ API DENGAN FALLBACK MULTI-KEY ----------
-async function askGroq(prompt, maxRetriesPerKey = 2) {
-    const keys = CONFIG.GROQ_API_KEYS.filter(k => k && k.startsWith('gsk_'));
-    if (keys.length === 0) {
-        throw new Error('Tidak ada API key Groq yang valid. Periksa konfigurasi.');
-    }
-
-    let lastError = null;
-    for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
-        const apiKey = keys[keyIndex];
-        console.log(`Mencoba dengan API Key #${keyIndex + 1}...`);
-
-        for (let attempt = 1; attempt <= maxRetriesPerKey; attempt++) {
-            try {
-                const response = await fetch(CONFIG.GROQ_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + apiKey,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: CONFIG.GROQ_MODEL,
-                        messages: [
-                            { role: 'system', content: 'Kamu adalah asisten AI yang membantu dalam pendidikan literasi. Selalu berikan jawaban dalam format JSON yang valid tanpa markdown pembungkus.' },
-                            { role: 'user', content: prompt }
-                        ],
-                        temperature: 0.7,
-                        max_tokens: 4096,
-                        response_format: { type: 'json_object' }
-                    })
-                });
-
-                if (!response.ok) {
-                    const text = await response.text();
-                    let errorMsg = `HTTP ${response.status}`;
-                    try {
-                        const errJson = JSON.parse(text);
-                        if (errJson.error && errJson.error.message) {
-                            errorMsg += `: ${errJson.error.message}`;
-                        } else {
-                            errorMsg += `: ${text}`;
-                        }
-                    } catch (e) {
-                        errorMsg += `: ${text}`;
-                    }
-                    if (response.status === 401 || response.status === 429) {
-                        throw new Error(errorMsg);
-                    }
-                    throw new Error(errorMsg);
-                }
-
-                const data = await response.json();
-                const content = data.choices?.[0]?.message?.content;
-                if (!content) throw new Error('Respons tidak memiliki konten');
-
-                try {
-                    JSON.parse(content);
-                    return content;
-                } catch (e) {
-                    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-                    if (jsonMatch) {
-                        const jsonStr = jsonMatch[1];
-                        JSON.parse(jsonStr);
-                        return jsonStr;
-                    }
-                    throw new Error('Respons bukan JSON yang valid: ' + content);
-                }
-            } catch (e) {
-                lastError = e;
-                console.warn(`Key #${keyIndex+1}, percobaan ${attempt} gagal:`, e.message);
-                if (attempt < maxRetriesPerKey) {
-                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-                }
-            }
-        }
-        console.warn(`API Key #${keyIndex+1} gagal setelah ${maxRetriesPerKey} percobaan. Beralih ke key berikutnya...`);
-    }
-
-    throw new Error('Semua API key Groq gagal setelah percobaan. ' + (lastError ? lastError.message : ''));
-}
-
-// ---------- GENERATE SOAL VIA GROQ (dengan tema acak & batasan kata) ----------
+// ---------- GENERATE SOAL VIA SERVER LOKAL ----------
 async function fetchQuestions(level, name) {
     dom.loading.style.display = 'block';
     dom.startBtn.disabled = true;
     try {
-        const cfg = getLevelConfig(level);
-        // Pilih tema secara acak
-        const theme = CONFIG.THEMES[Math.floor(Math.random() * CONFIG.THEMES.length)];
-        const promptJson = `Buatkan 1 bacaan/cerita pendek untuk anak SMP level ${level} dengan tema "${theme}".
-Bacaan harus memiliki panjang sekitar ${cfg.wordCount} kata.
-Tema harus jelas dan bacaan harus informatif, menarik, serta memiliki alur cerita yang baik.
-Output dalam format JSON: {"text": "isi bacaan lengkap"}. Hanya output JSON.`;
-
-        const response = await askGroq(promptJson);
-        const parsed = JSON.parse(response);
-        const text = parsed.text;
-        if (!text || text.length < 50) {
-            throw new Error('Respons AI terlalu pendek atau kosong.');
+        const payload = { action: 'generateQuestions', level, name };
+        const response = await fetch(CONFIG.API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (data.status === 'success' && data.questions) {
+            state.questions = data.questions;
+            const total = state.questions.length;
+            state.boxesStatus = new Array(total).fill('white');
+            state.scores = new Array(total).fill(null);
+            renderBoxes();
+            alert(`Soal berhasil dibuat! (${total} soal) Klik kotak putih untuk mulai mengerjakan.`);
+        } else {
+            alert('Gagal membuat soal: ' + (data.message || ''));
         }
-
-        state.questions = [{
-            id: 0,
-            text: text,
-            timeRead: cfg.timeRead,
-            timeWrite: cfg.timeWrite,
-            answer: null,
-            score: null,
-            theme: theme // opsional, untuk info
-        }];
-        const total = state.questions.length;
-        state.boxesStatus = new Array(total).fill('white');
-        state.scores = new Array(total).fill(null);
-        renderBoxes();
-        alert(`Soal berhasil dibuat! (${total} soal, tema: ${theme}) Klik kotak putih untuk mulai mengerjakan.`);
     } catch (e) {
         console.error(e);
         alert('Gagal membuat soal: ' + e.message);
@@ -236,37 +142,31 @@ Output dalam format JSON: {"text": "isi bacaan lengkap"}. Hanya output JSON.`;
     }
 }
 
-// ---------- EVALUASI JAWABAN VIA GROQ (dengan batasan kata) ----------
+// ---------- EVALUASI JAWABAN VIA SERVER LOKAL ----------
 async function evaluateAnswerViaAI(question, answer, level) {
-    const cfg = getLevelConfig(level);
-    const maxWords = cfg.maxAnswerWords;
-    const prompt = `Berikut adalah sebuah bacaan dan ringkasan/ide pokok yang ditulis oleh siswa.
-
-Bacaan:
-${question}
-
-Ringkasan/Ide Pokok siswa:
-${answer}
-
-Tugasmu:
-1. Bandingkan ringkasan siswa dengan isi bacaan.
-2. Nilai seberapa baik siswa menangkap ide pokok dan informasi penting dari bacaan.
-3. Berikan skor 1-10 (10 = sangat baik, menangkap semua ide pokok dengan tepat).
-4. Berikan komentar singkat (2-3 kalimat) yang membangun untuk siswa.
-5. Tuliskan ide pokok yang SEHARUSNYA dari bacaan tersebut (dalam 1-2 kalimat).
-6. Pastikan jawaban siswa tidak melebihi ${maxWords} kata; jika melebihi, kurangi poin.
-
-Output dalam format JSON:
-{"score": angka (1-10), "comment": "komentar", "expected_idea": "ide pokok yang diharapkan"}
-Hanya output JSON, tanpa teks tambahan.`;
-
-    const response = await askGroq(prompt);
-    const parsed = JSON.parse(response);
-    return {
-        score: parsed.score || 5,
-        comment: parsed.comment || 'Analisis tidak tersedia.',
-        expected_idea: parsed.expected_idea || 'Tidak tersedia'
+    const payload = {
+        action: 'evaluateAnswer',
+        level,
+        question,
+        answer,
+        name: state.name
     };
+    const response = await fetch(CONFIG.API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (data.status === 'success') {
+        return {
+            score: data.score,
+            comment: data.comment,
+            expected_idea: data.expected_idea || 'Tidak tersedia'
+        };
+    } else {
+        throw new Error(data.message || 'Gagal mengevaluasi');
+    }
 }
 
 // ---------- RENDER BOXES ----------
@@ -304,7 +204,7 @@ function updateProgress() {
 async function postToScript(payload) {
     const formData = new FormData();
     formData.append('data', JSON.stringify(payload));
-    const response = await fetch(CONFIG.SCRIPT_URL, {
+    const response = await fetch(CONFIG.SHEET_URL, {
         method: 'POST',
         body: formData
     });
@@ -497,6 +397,7 @@ async function handleSaveAnswer(index) {
         showModal(dom.scoreModal);
         dom.scoreCloseBtn.onclick = function() {
             hideModal(dom.scoreModal);
+            // Simpan ke Google Sheet
             try {
                 const payload = {
                     action: 'saveResult',
@@ -530,7 +431,7 @@ async function handleSaveAnswer(index) {
 // ---------- FETCH HASIL DARI SHEET ----------
 async function fetchResults() {
     try {
-        const resp = await fetch(CONFIG.SCRIPT_URL + '?action=getResults');
+        const resp = await fetch(CONFIG.SHEET_URL + '?action=getResults');
         const data = await resp.json();
         if (data.status === 'success' && data.results) {
             state.results = data.results;
@@ -606,4 +507,4 @@ document.querySelectorAll('.modal-overlay').forEach(modal => {
     });
 });
 
-console.log('Aplikasi Literasi siap! (Groq API dengan fallback multi-key, model ' + CONFIG.GROQ_MODEL + ')');
+console.log('Aplikasi Literasi siap! (Server lokal via ngrok)');
