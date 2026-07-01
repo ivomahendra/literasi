@@ -513,3 +513,17 @@ body {
     color: #f9c74f;
     font-size: 0.95rem;
 }
+/* Toast notification */
+.toast-notification {
+    /* sudah diatur inline oleh JS, tapi bisa tambahkan fallback */
+}
+
+/* Detail modal */
+.detail-box .modal-body p {
+    margin: 6px 0;
+}
+.detail-box hr {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    margin: 12px 0;
+}
