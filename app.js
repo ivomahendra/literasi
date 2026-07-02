@@ -1,5 +1,6 @@
 // ============================================================
 // app.js - Frontend Aplikasi Literasi (10 Soal Sequential)
+// Fokus: Ide Pokok / Ringkasan Cerita
 // ============================================================
 
 const CONFIG = {
@@ -171,7 +172,6 @@ async function generateAllQuestions(level, name) {
     dom.loading.style.display = 'block';
     dom.startBtn.disabled = true;
 
-    // Inisialisasi state untuk 10 soal
     state.questions = [];
     state.boxesStatus = [];
     state.scores = [];
@@ -392,6 +392,11 @@ function openAnswerModal(index) {
     const q = state.questions[index];
     if (!q) return;
     dom.answerInput.value = '';
+    // Perubahan: prompt jawaban untuk ringkasan/ide pokok
+    const promptEl = document.querySelector('.answer-prompt');
+    if (promptEl) promptEl.textContent = 'Tulis ringkasan atau ide pokok dari bacaan di atas:';
+    dom.answerInput.placeholder = 'Tulis ringkasan atau ide pokok di sini...';
+    
     let timeLeft = q.timeWrite;
     dom.aTimeLeft.textContent = formatTime(timeLeft);
     showModal(dom.answerModal);
@@ -494,7 +499,6 @@ async function handleSaveAnswer(index) {
         updateProgress();
         showToast(`✅ Soal #${index+1} selesai! Skor: ${result.score}/10`);
 
-        // Tampilkan modal skor
         dom.scoreNumber.textContent = result.score;
         dom.scoreComment.textContent = result.comment || 'Terima kasih sudah menjawab!';
         dom.expectedIdeaText.textContent = result.expected_idea || 'Tidak tersedia';
@@ -626,4 +630,4 @@ document.querySelectorAll('.modal-overlay').forEach(modal => {
 renderBoxes();
 fetchResults();
 
-console.log('Aplikasi Literasi 10 Soal siap!');
+console.log('Aplikasi Literasi 10 Soal (fokus ide pokok) siap!');
