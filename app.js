@@ -1,12 +1,11 @@
-// ====================================================
-//  APLIKASI LITERASI – 10 SOAL SEQUENTIAL
-//  Auto-retry, background, detail lengkap
-// ====================================================
+// ============================================================
+// app.js - Frontend Aplikasi Literasi (10 Soal Sequential)
+// ============================================================
 
 const CONFIG = {
     API_URL: 'https://cardigan-unmixed-saddled.ngrok-free.dev', // Ganti dengan URL ngrok Anda
     SHEET_URL: 'https://script.google.com/macros/s/AKfycbxYoqc7oHFiKw8VmPrXRcSNzWRK4t7vn8zO15pBSOWX3jKwXCuFr1WRKaAwl4JsA37srw/exec',
-    TOTAL_QUESTIONS: 10,  // <--- DIUBAH MENJADI 10
+    TOTAL_QUESTIONS: 10,
     MAX_RETRIES: 5,
     RETRY_DELAY: 3000,
 };
@@ -26,6 +25,7 @@ const state = {
     results: [],
     readFinishTimeout: null,
     generating: false,
+    currentBox: -1,
 };
 
 // ---------- DOM UTILITY ----------
@@ -82,6 +82,7 @@ function formatTime(seconds) {
 
 function showModal(modal) { modal.classList.add('active'); }
 function hideModal(modal) { modal.classList.remove('active'); }
+
 function stopTimer() {
     if (state.timerInterval) {
         clearInterval(state.timerInterval);
@@ -134,17 +135,7 @@ function showToast(message, duration = 3000) {
     }, duration);
 }
 
-// Tambahkan keyframe toast
-const styleSheet = document.createElement('style');
-styleSheet.textContent = `
-    @keyframes toastIn {
-        from { opacity: 0; transform: translateX(-50%) translateY(20px); }
-        to { opacity: 1; transform: translateX(-50%) translateY(0); }
-    }
-`;
-document.head.appendChild(styleSheet);
-
-// ---------- API CALL DENGAN RETRY (EXPO BACKOFF) ----------
+// ---------- API CALL DENGAN RETRY ----------
 async function callApiWithRetry(payload, retries = CONFIG.MAX_RETRIES) {
     let lastError;
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -173,7 +164,7 @@ async function callApiWithRetry(payload, retries = CONFIG.MAX_RETRIES) {
     throw new Error(`Gagal setelah ${retries} percobaan: ${lastError.message}`);
 }
 
-// ---------- GENERATE 10 SOAL SEQUENTIAL (1 per 1) ----------
+// ---------- GENERATE 10 SOAL SEQUENTIAL ----------
 async function generateAllQuestions(level, name) {
     if (state.generating) return;
     state.generating = true;
@@ -202,7 +193,6 @@ async function generateAllQuestions(level, name) {
     renderBoxes();
     showToast('⏳ Menghasilkan 10 soal (satu per satu)...');
 
-    // Jalankan sequential
     for (let i = 0; i < CONFIG.TOTAL_QUESTIONS; i++) {
         try {
             const data = await generateSingleQuestionWithRetry(level, name, i);
@@ -224,7 +214,6 @@ async function generateAllQuestions(level, name) {
             console.error(`Soal #${i+1} gagal:`, e);
         }
         renderBoxes();
-        // Beri jeda 1 detik antar request agar tidak overload
         if (i < CONFIG.TOTAL_QUESTIONS - 1) {
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
@@ -242,13 +231,12 @@ async function generateAllQuestions(level, name) {
     state.generating = false;
 }
 
-// ---------- GENERATE SATU SOAL DENGAN RETRY ----------
 async function generateSingleQuestionWithRetry(level, name, index) {
     const payload = { action: 'generateQuestions', level, name };
     return await callApiWithRetry(payload, CONFIG.MAX_RETRIES);
 }
 
-// ---------- EVALUASI JAWABAN (background) ----------
+// ---------- EVALUASI JAWABAN ----------
 async function evaluateAnswerViaAI(question, answer, level) {
     const payload = {
         action: 'evaluateAnswer',
@@ -265,7 +253,7 @@ async function evaluateAnswerViaAI(question, answer, level) {
     };
 }
 
-// ---------- RENDER BOXES (dengan status lengkap) ----------
+// ---------- RENDER BOXES ----------
 function renderBoxes() {
     const grid = dom.boxesGrid;
     grid.innerHTML = '';
@@ -363,15 +351,15 @@ function openQuestionModal(index) {
     dom.questionText.textContent = q.text;
     let timeLeft = q.timeRead;
     dom.qTimeLeft.textContent = formatTime(timeLeft);
-    
+
     dom.qCloseBtn.disabled = true;
     dom.qCloseBtn.textContent = 'Membaca...';
     dom.qCloseBtn.onclick = null;
-    
+
     showModal(dom.questionModal);
     state.isReading = true;
     stopTimer();
-    
+
     state.timerInterval = setInterval(() => {
         timeLeft--;
         dom.qTimeLeft.textContent = formatTime(timeLeft);
@@ -382,14 +370,14 @@ function openQuestionModal(index) {
             dom.qCloseBtn.textContent = 'Selesai Membaca (waktu habis)';
         }
     }, 1000);
-    
+
     state.readFinishTimeout = setTimeout(() => {
         if (state.isReading) {
             dom.qCloseBtn.disabled = false;
             dom.qCloseBtn.textContent = 'Selesai Membaca';
         }
     }, 3000);
-    
+
     dom.qCloseBtn.onclick = function() {
         if (dom.qCloseBtn.disabled) return;
         hideModal(dom.questionModal);
@@ -470,7 +458,7 @@ function openAnswerModal(index) {
     };
 }
 
-// ---------- SIMPAN JAWABAN & EVALUASI BACKGROUND ----------
+// ---------- SIMPAN JAWABAN & EVALUASI ----------
 async function handleSaveAnswer(index) {
     if (state.isAnswering === false) return;
     const q = state.questions[index];
@@ -505,6 +493,12 @@ async function handleSaveAnswer(index) {
         renderBoxes();
         updateProgress();
         showToast(`✅ Soal #${index+1} selesai! Skor: ${result.score}/10`);
+
+        // Tampilkan modal skor
+        dom.scoreNumber.textContent = result.score;
+        dom.scoreComment.textContent = result.comment || 'Terima kasih sudah menjawab!';
+        dom.expectedIdeaText.textContent = result.expected_idea || 'Tidak tersedia';
+        showModal(dom.scoreModal);
 
         postToScript({
             action: 'saveResult',
@@ -615,9 +609,7 @@ dom.startBtn.addEventListener('click', function() {
     generateAllQuestions(state.level, name);
 });
 
-// ---------- INIT ----------
-renderBoxes();
-fetchResults();
+dom.scoreCloseBtn.addEventListener('click', () => hideModal(dom.scoreModal));
 
 dom.detailCloseBtn.addEventListener('click', () => hideModal(dom.detailModal));
 
@@ -629,5 +621,9 @@ document.querySelectorAll('.modal-overlay').forEach(modal => {
         }
     });
 });
+
+// ---------- INIT ----------
+renderBoxes();
+fetchResults();
 
 console.log('Aplikasi Literasi 10 Soal siap!');

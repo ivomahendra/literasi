@@ -422,7 +422,7 @@ body {
 }
 .app-footer i { color:#ff6b81; }
 
-/* ===== RESPONSIVE (Mobile First) ===== */
+/* ===== RESPONSIVE ===== */
 @media (max-width: 600px) {
     body { padding:10px; }
     .container { gap:14px; padding:5px 0; }
@@ -461,7 +461,6 @@ body {
     .score-circle { width:100px; height:100px; }
     .score-circle span { font-size:2.6rem; }
 }
-
 @media (min-width: 601px) and (max-width: 900px) {
     .boxes-grid { grid-template-columns:repeat(auto-fill, minmax(80px, 1fr)); gap:12px; }
     .box-item { min-height:80px; }
@@ -469,7 +468,7 @@ body {
     .form-group { flex:1 1 150px; }
 }
 
-/* Tambahan untuk hasil dengan tanggal */
+/* Additional styles for results */
 .result-item {
     display: flex;
     justify-content: space-between;
@@ -513,12 +512,6 @@ body {
     color: #f9c74f;
     font-size: 0.95rem;
 }
-/* Toast notification */
-.toast-notification {
-    /* sudah diatur inline oleh JS, tapi bisa tambahkan fallback */
-}
-
-/* Detail modal */
 .detail-box .modal-body p {
     margin: 6px 0;
 }
